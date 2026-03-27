@@ -2,14 +2,36 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "BedrockAgentManagement",
       "Effect": "Allow",
       "Action": [
         "bedrock:CreateAgent",
+        "bedrock:UpdateAgent",
+        "bedrock:DeleteAgent",
         "bedrock:GetAgent",
-        "bedrock:ListAgents"
+        "bedrock:ListAgents",
+        "bedrock:PrepareAgent",
+        "bedrock:CreateAgentAlias",
+        "bedrock:UpdateAgentAlias",
+        "bedrock:DeleteAgentAlias",
+        "bedrock:GetAgentAlias",
+        "bedrock:ListAgentAliases",
+        "bedrock:TagResource",
+        "bedrock:UntagResource",
+        "bedrock:ListTagsForResource"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "PassBedrockAgentRole",
+      "Effect": "Allow",
+      "Action": ["iam:PassRole"],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": "bedrock.amazonaws.com"
+        }
+      }
     }
   ]
 }
-

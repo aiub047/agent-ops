@@ -92,7 +92,5 @@ spec:
 
   deployment:
     region: us-east-1
-    # Each agent should declare its own IAM role for least-privilege isolation.
-    # If omitted, DEFAULT_BEDROCK_AGENT_ROLE_ARN env var is used as fallback.
-    roleArn: arn:aws:iam::123456789012:role/SeniorArchitectAgentRole
+    # roleArn intentionally omitted — falls back to DEFAULT_BEDROCK_AGENT_ROLE_ARN env var.
 

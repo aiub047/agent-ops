@@ -2,11 +2,25 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "AllowEKSIRSA",
       "Effect": "Allow",
       "Principal": {
         "Federated": "........"
       },
       "Action": "sts:AssumeRoleWithWebIdentity"
+    },
+    {
+      "Sid": "AllowBedrockAgentExecution",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "bedrock.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole",
+      "Condition": {
+        "StringEquals": {
+          "aws:SourceAccount": "........"
+        }
+      }
     }
   ]
 }

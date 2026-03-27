@@ -28,7 +28,7 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 
 @router.get("/version", summary="Get API version")
 def version() -> str:
-    return "1.0.1"
+    return "1.0.2"
 
 
 @router.post(
