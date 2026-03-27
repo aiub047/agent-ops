@@ -26,6 +26,11 @@ from app.models.common import PaginatedResponse
 router = APIRouter(prefix="/agents", tags=["agents"])
 
 
+@router.get("/version", summary="Get API version")
+def version() -> str:
+    return "1.0.1"
+
+
 @router.post(
     "",
     response_model=AgentResponse,
@@ -34,8 +39,8 @@ router = APIRouter(prefix="/agents", tags=["agents"])
     response_description="The newly created agent.",
 )
 def create_agent(
-    request: CreateAgentFromDefinitionRequest,
-    service: AgentServiceDep,
+        request: CreateAgentFromDefinitionRequest,
+        service: AgentServiceDep,
 ) -> AgentResponse:
     """
     Read the agent definition YAML from the ``agent-definition`` directory by
@@ -56,9 +61,9 @@ def create_agent(
     summary="List all Bedrock agents",
 )
 def list_agents(
-    service: AgentServiceDep,
-    max_results: int = Query(50, ge=1, le=100, description="Page size."),
-    next_token: str | None = Query(None, description="Pagination token from a previous response."),
+        service: AgentServiceDep,
+        max_results: int = Query(50, ge=1, le=100, description="Page size."),
+        next_token: str | None = Query(None, description="Pagination token from a previous response."),
 ) -> PaginatedResponse[AgentSummary]:
     """Return a paginated list of all Amazon Bedrock agents in the configured region."""
     return service.list_agents(max_results=max_results, next_token=next_token)
@@ -84,8 +89,8 @@ def list_definitions(service: AgentServiceDep) -> list[str]:
     summary="Get a Bedrock agent by ID",
 )
 def get_agent(
-    agent_id: str,
-    service: AgentServiceDep,
+        agent_id: str,
+        service: AgentServiceDep,
 ) -> AgentResponse:
     """Retrieve details for the Bedrock agent identified by *agent_id*."""
     return service.get_agent(agent_id)
@@ -97,9 +102,9 @@ def get_agent(
     summary="Update a Bedrock agent from a YAML definition file",
 )
 def update_agent(
-    agent_id: str,
-    request: UpdateAgentFromDefinitionRequest,
-    service: AgentServiceDep,
+        agent_id: str,
+        request: UpdateAgentFromDefinitionRequest,
+        service: AgentServiceDep,
 ) -> AgentResponse:
     """
     Update an existing Bedrock agent using the specified YAML definition file.
@@ -119,9 +124,8 @@ def update_agent(
     summary="Delete a Bedrock agent",
 )
 def delete_agent(
-    agent_id: str,
-    service: AgentServiceDep,
+        agent_id: str,
+        service: AgentServiceDep,
 ) -> None:
     """Permanently delete the Bedrock agent identified by *agent_id*."""
     service.delete_agent(agent_id)
-
