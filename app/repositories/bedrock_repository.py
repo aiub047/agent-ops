@@ -37,6 +37,8 @@ class BedrockRepository:
             else boto3.Session()
         )
         self._client = session.client("bedrock-agent", region_name=region_name)
+        # Separate client for control-plane operations (model listing, inference profiles).
+        self._bedrock_client = session.client("bedrock", region_name=region_name)
 
     # ── Agent CRUD ────────────────────────────────────────────────────────────
 
@@ -124,6 +126,52 @@ class BedrockRepository:
             self._client.delete_agent(agentId=agent_id, skipResourceInUseCheck=False)
         except ClientError as exc:
             self._handle_client_error(exc, context=f"delete_agent({agent_id})")
+
+    # ── Model / inference-profile listing ────────────────────────────────────
+
+    def list_foundation_models(self) -> list[dict[str, Any]]:
+        """
+        Return all text-output foundation models that support on-demand throughput.
+
+        Filters applied:
+        * ``byOutputModality=TEXT`` – only text-generation models.
+        * ``byInferenceType=ON_DEMAND`` – excludes models that require
+          provisioned throughput (not usable in agent definitions).
+
+        Returns:
+            list[dict]: Each item contains at least ``modelId``, ``modelName``,
+            ``providerName``, ``inputModalities``, and ``inferenceTypesSupported``.
+        """
+        logger.info("Listing Bedrock foundation models")
+        try:
+            response = self._bedrock_client.list_foundation_models(
+                byOutputModality="TEXT",
+                byInferenceType="ON_DEMAND",
+            )
+            return response.get("modelSummaries", [])
+        except ClientError as exc:
+            self._handle_client_error(exc, context="list_foundation_models")
+
+    def list_inference_profiles(self) -> list[dict[str, Any]]:
+        """
+        Return all system-defined cross-region inference profiles.
+
+        These are the ``us.*`` / ``eu.*`` / ``ap.*`` prefixed IDs that Bedrock
+        requires for models (like Meta Llama) that do not allow bare on-demand
+        invocation via their foundation-model ID.
+
+        Returns:
+            list[dict]: Each item contains at least ``inferenceProfileId``,
+            ``inferenceProfileName``, ``status``, and ``type``.
+        """
+        logger.info("Listing Bedrock inference profiles")
+        try:
+            response = self._bedrock_client.list_inference_profiles(
+                typeEquals="SYSTEM_DEFINED",
+            )
+            return response.get("inferenceProfileSummaries", [])
+        except ClientError as exc:
+            self._handle_client_error(exc, context="list_inference_profiles")
 
     # Bedrock agent statuses that indicate the agent is still transitioning and
     # cannot yet accept a PrepareAgent or UpdateAgent call.

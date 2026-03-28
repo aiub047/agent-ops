@@ -8,7 +8,13 @@ Implements AgentServiceProtocol so it can be swapped in tests.
 
 from app.core.exceptions import BedrockServiceError
 from app.core.logging import get_logger
-from app.models.agent import AgentResponse, AgentSummary
+from app.models.agent import (
+    AgentResponse,
+    AgentSummary,
+    BedrockInferenceProfileSummary,
+    BedrockModelSummary,
+    BedrockModelsResponse,
+)
 from app.models.common import PaginatedResponse
 from app.repositories.agent_definition_repository import AgentDefinitionRepository
 from app.repositories.bedrock_repository import BedrockRepository
@@ -184,6 +190,51 @@ class BedrockAgentService:
     def list_definitions(self) -> list[str]:
         """Return the names of all YAML definitions in the agent-definition directory."""
         return self._definitions.list_definitions()
+
+    def list_bedrock_models(self) -> BedrockModelsResponse:
+        """
+        Return all foundation models and cross-region inference profiles usable
+        in an agent definition YAML.
+
+        Foundation models are filtered to text-output, on-demand models.
+        Inference profiles are system-defined cross-region profiles (``us.*``,
+        ``eu.*``, ``ap.*``) required by models like Meta Llama.
+
+        Returns:
+            BedrockModelsResponse: Combined listing of model IDs and profile IDs.
+        """
+        raw_models = self._bedrock.list_foundation_models()
+        raw_profiles = self._bedrock.list_inference_profiles()
+
+        foundation_models = [
+            BedrockModelSummary(
+                model_id=m.get("modelId", ""),
+                model_name=m.get("modelName", ""),
+                provider_name=m.get("providerName", ""),
+                input_modalities=m.get("inputModalities", []),
+                output_modalities=m.get("outputModalities", []),
+                inference_types_supported=m.get("inferenceTypesSupported", []),
+            )
+            for m in raw_models
+        ]
+
+        inference_profiles = [
+            BedrockInferenceProfileSummary(
+                profile_id=p.get("inferenceProfileId", ""),
+                profile_name=p.get("inferenceProfileName", ""),
+                status=p.get("status", ""),
+                profile_type=p.get("type", ""),
+                description=p.get("description"),
+            )
+            for p in raw_profiles
+        ]
+
+        return BedrockModelsResponse(
+            foundation_models=foundation_models,
+            inference_profiles=inference_profiles,
+            total_foundation_models=len(foundation_models),
+            total_inference_profiles=len(inference_profiles),
+        )
 
     # ── Private helpers ───────────────────────────────────────────────────────
 

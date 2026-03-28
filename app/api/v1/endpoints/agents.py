@@ -10,6 +10,9 @@ Routes:
     GET    /agents/{agent_id}   – get a specific agent
     PUT    /agents/{agent_id}   – update agent from definition file
     DELETE /agents/{agent_id}   – delete agent
+
+Bedrock model routes:
+    GET    /bedrock-models      – list available foundation models and inference profiles
 """
 
 from fastapi import APIRouter, Query, status
@@ -18,6 +21,7 @@ from app.api.dependencies import AgentServiceDep
 from app.models.agent import (
     AgentResponse,
     AgentSummary,
+    BedrockModelsResponse,
     CreateAgentFromDefinitionRequest,
     UpdateAgentFromDefinitionRequest,
 )
@@ -25,10 +29,13 @@ from app.models.common import PaginatedResponse
 
 router = APIRouter(prefix="/agents", tags=["agents"])
 
+# Separate router so the URL is /v1/bedrock-models (not /v1/agents/bedrock-models)
+bedrock_models_router = APIRouter(prefix="/bedrock-models", tags=["bedrock-models"])
+
 
 @router.get("/version", summary="Get API version")
 def version() -> str:
-    return "1.0.2"
+    return "1.0.4"
 
 
 @router.post(
@@ -129,3 +136,28 @@ def delete_agent(
 ) -> None:
     """Permanently delete the Bedrock agent identified by *agent_id*."""
     service.delete_agent(agent_id)
+
+
+# ── Bedrock models ────────────────────────────────────────────────────────────
+
+@bedrock_models_router.get(
+    "",
+    response_model=BedrockModelsResponse,
+    summary="List available Bedrock model IDs",
+)
+def list_bedrock_models(service: AgentServiceDep) -> BedrockModelsResponse:
+    """
+    Return all model IDs and inference profile IDs that can be used as
+    ``spec.model.id`` in an agent definition YAML.
+
+    Two categories are returned:
+
+    * **foundation_models** – on-demand text models addressable by their bare
+      model ID (e.g. ``amazon.titan-text-express-v1``).
+    * **inference_profiles** – system-defined cross-region profiles such as
+      ``us.meta.llama3-3-70b-instruct-v1:0``.  Use these for any model that
+      raises *"on-demand throughput isn't supported"* when addressed by its
+      bare model ID.
+    """
+    return service.list_bedrock_models()
+
