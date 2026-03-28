@@ -20,7 +20,9 @@
         "bedrock:UntagResource",
         "bedrock:ListTagsForResource",
         "bedrock:ListFoundationModels",
-        "bedrock:GetFoundationModel"
+        "bedrock:GetFoundationModel",
+        "bedrock:ListInferenceProfiles",
+        "bedrock:GetInferenceProfile"
       ],
       "Resource": "*"
     },
