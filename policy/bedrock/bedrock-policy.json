@@ -29,7 +29,11 @@
         "bedrock:InvokeModel",
         "bedrock:InvokeModelWithResponseStream"
       ],
-      "Resource": "arn:aws:bedrock:us-east-1::foundation-model/*"
+      "Resource": [
+        "arn:aws:bedrock:us-east-1::foundation-model/*",
+        "arn:aws:bedrock:us-east-1:314630006302:inference-profile/*",
+        "arn:aws:bedrock:*::foundation-model/*"
+      ]
     },
     {
       "Sid": "BedrockKnowledgeBaseRetrieval",
