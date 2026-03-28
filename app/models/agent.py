@@ -85,6 +85,35 @@ class UpdateAgentFromDefinitionRequest(BaseModel):
     )
 
 
+class CreateOrUpdateAgentRequest(BaseModel):
+    """Request body for the create-or-update (upsert) endpoint.
+
+    Looks up an existing agent by name derived from the definition file.
+    If found, the agent is updated (or deleted and recreated when
+    ``recreate=True``).  If not found, a new agent is created.
+    """
+
+    definition_file: str = Field(
+        ...,
+        description=(
+            "Name of the YAML file (without extension) in the agent-definition directory. "
+            "Example: 'senior-software-architect'."
+        ),
+        examples=["senior-software-architect"],
+    )
+    prepare: bool = Field(
+        True,
+        description="If True, prepare the agent immediately after the operation so it is ready to use.",
+    )
+    recreate: bool = Field(
+        False,
+        description=(
+            "If True and an agent with the same name already exists, delete it and create a fresh one. "
+            "If False (default), the existing agent is updated in-place."
+        ),
+    )
+
+
 class AgentSummary(BaseModel):
     """Lightweight agent representation used in list responses."""
 

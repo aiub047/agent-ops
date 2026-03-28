@@ -49,3 +49,12 @@ class AgentServiceProtocol(Protocol):
         """Permanently delete an agent."""
         ...
 
+    def create_or_update_agent_from_definition(
+        self,
+        definition_file: str,
+        prepare: bool = True,
+        recreate: bool = False,
+    ) -> AgentResponse:
+        """Create a new agent or update (or recreate) an existing one by name."""
+        ...
+

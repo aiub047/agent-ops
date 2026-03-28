@@ -4,13 +4,14 @@ Agent API endpoints (v1).
 Provides CRUD operations for Amazon Bedrock Agents driven by YAML definition files.
 
 Routes:
-    POST   /agents                       – create agent from definition file
-    GET    /agents                       – list all agents
-    GET    /agents/definitions           – list available definition files
-    GET    /agents/bedrock-models        – list available model IDs and inference profiles
-    GET    /agents/{agent_id}            – get a specific agent
-    PUT    /agents/{agent_id}            – update agent from definition file
-    DELETE /agents/{agent_id}            – delete agent
+    POST   /agents/create              – create agent from definition file
+    POST   /agents/create-update       – create or update (upsert) agent from definition file
+    GET    /agents                     – list all agents
+    GET    /agents/definitions         – list available definition files
+    GET    /agents/bedrock-models      – list available model IDs and inference profiles
+    GET    /agents/{agent_id}          – get a specific agent
+    PUT    /agents/{agent_id}          – update agent from definition file
+    DELETE /agents/{agent_id}          – delete agent
 """
 
 from fastapi import APIRouter, Query, status
@@ -21,6 +22,7 @@ from app.models.agent import (
     AgentSummary,
     BedrockModelsResponse,
     CreateAgentFromDefinitionRequest,
+    CreateOrUpdateAgentRequest,
     UpdateAgentFromDefinitionRequest,
 )
 from app.models.common import PaginatedResponse
@@ -31,11 +33,10 @@ router = APIRouter(prefix="/agents", tags=["agents"])
 
 @router.get("/version", summary="Get API version")
 def version() -> str:
-    return "1.0.5"
+    return "1.0.6"
 
 
-@router.post(
-    "",
+@router.post("/create",
     response_model=AgentResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create a Bedrock agent from a YAML definition file",
@@ -55,6 +56,40 @@ def create_agent(
     return service.create_agent_from_definition(
         definition_file=request.definition_file,
         prepare=request.prepare,
+    )
+
+
+@router.post(
+    "/create-update",
+    response_model=AgentResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create or update a Bedrock agent from a YAML definition file",
+    response_description="The created or updated agent.",
+)
+def create_or_update_agent(
+        request: CreateOrUpdateAgentRequest,
+        service: AgentServiceDep,
+) -> AgentResponse:
+    """
+    Upsert a Bedrock agent using the specified YAML definition file.
+
+    The agent name is taken from ``metadata.name`` inside the definition file.
+    Three scenarios are handled automatically:
+
+    * **Agent does not exist** – a new agent is created (equivalent to ``POST /agents/create``).
+    * **Agent exists, recreate=false** *(default)* – the existing agent is updated
+      in-place (equivalent to ``PUT /agents/{agent_id}``).
+    * **Agent exists, recreate=true** – the existing agent is deleted and a brand-new
+      one is created.  Useful after changing fields that Bedrock does not allow to be
+      updated (e.g. IAM role ARN).
+
+    Set ``prepare=true`` (default) to have the agent prepared and ready for
+    invocation immediately after the operation.
+    """
+    return service.create_or_update_agent_from_definition(
+        definition_file=request.definition_file,
+        prepare=request.prepare,
+        recreate=request.recreate,
     )
 
 

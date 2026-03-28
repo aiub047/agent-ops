@@ -191,7 +191,86 @@ class BedrockAgentService:
         """Return the names of all YAML definitions in the agent-definition directory."""
         return self._definitions.list_definitions()
 
-    def list_bedrock_models(self) -> BedrockModelsResponse:
+    def create_or_update_agent_from_definition(
+        self,
+        definition_file: str,
+        prepare: bool = True,
+        recreate: bool = False,
+    ) -> AgentResponse:
+        """
+        Upsert a Bedrock agent from a YAML definition file.
+
+        Looks up an existing agent whose name matches ``metadata.name`` in the
+        definition file.  Behaviour depends on whether a match is found and on
+        the ``recreate`` flag:
+
+        * **Not found** → create a new agent (same as ``create_agent``).
+        * **Found, recreate=False** (default) → update the existing agent
+          in-place (same as ``update_agent``).
+        * **Found, recreate=True** → delete the existing agent, then create a
+          fresh one.  Use this when you need a clean slate (e.g. after changing
+          the agent's IAM role ARN, which cannot be updated in-place).
+
+        Args:
+            definition_file: Filename without extension (e.g. 'senior-software-architect').
+            prepare: Whether to prepare the agent after the operation.
+            recreate: When True and an agent already exists, delete-then-recreate
+                instead of updating in-place.
+
+        Returns:
+            AgentResponse: The resulting agent details.
+        """
+        definition = self._definitions.get(definition_file)
+        agent_name = definition.metadata.name
+        existing_id = self._find_agent_by_name(agent_name)
+
+        if existing_id is None:
+            logger.info(
+                "No existing agent named '%s' found; creating new.", agent_name
+            )
+            return self.create_agent(definition, prepare=prepare)
+
+        if recreate:
+            logger.info(
+                "Agent '%s' (%s) exists; deleting and recreating (recreate=True).",
+                agent_name,
+                existing_id,
+            )
+            self._bedrock.delete_agent(existing_id)
+            return self.create_agent(definition, prepare=prepare)
+
+        logger.info(
+            "Agent '%s' (%s) exists; updating in-place (recreate=False).",
+            agent_name,
+            existing_id,
+        )
+        return self.update_agent(existing_id, definition, prepare=prepare)
+
+    # ── Private helpers ───────────────────────────────────────────────────────
+
+    def _find_agent_by_name(self, name: str) -> str | None:
+        """
+        Scan all Bedrock agents (handling pagination) and return the *agentId*
+        of the first agent whose name matches *name*, or ``None`` if not found.
+
+        Args:
+            name: Agent name to search for (case-sensitive, matches ``metadata.name``
+                in the definition YAML).
+
+        Returns:
+            str | None: The Bedrock agent ID, or ``None`` if no match is found.
+        """
+        next_token: str | None = None
+        while True:
+            response = self._bedrock.list_agents(
+                max_results=50, next_token=next_token
+            )
+            for summary in response.get("agentSummaries", []):
+                if summary.get("agentName") == name:
+                    return summary["agentId"]
+            next_token = response.get("nextToken")
+            if not next_token:
+                return None
         """
         Return all foundation models and cross-region inference profiles usable
         in an agent definition YAML.
