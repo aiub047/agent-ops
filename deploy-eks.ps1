@@ -77,7 +77,7 @@ function Invoke-Step {
     & $Cmd[0] $Cmd[1..($Cmd.Length - 1)]
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "Command failed with exit code $LASTEXITCODE: $cmdLine"
+        Write-Error "Command failed with exit code ${LASTEXITCODE}: $cmdLine"
         exit $LASTEXITCODE
     }
 }
@@ -109,7 +109,7 @@ if ($DryRun) {
 
 # Step 2 – Build
 if (-not $SkipBuild) {
-    Invoke-Step "Building Docker image  $ImageName:$Tag" @(
+    Invoke-Step "Building Docker image  ${ImageName}:${Tag}" @(
         "docker", "build", "-t", "${ImageName}:${Tag}", "."
     )
 }
@@ -137,6 +137,6 @@ Invoke-Step "Waiting for rollout to complete" @(
 )
 
 Write-Host ""
-Write-Host "✔ Deployment of $FullImage completed successfully." -ForegroundColor Green
+Write-Host "OK  Deployment of $FullImage completed successfully." -ForegroundColor Green
 
 
