@@ -5,7 +5,7 @@
       "Sid": "AllowEKSIRSA",
       "Effect": "Allow",
       "Principal": {
-        "Federated": "........"
+        "Federated": "..."
       },
       "Action": "sts:AssumeRoleWithWebIdentity"
     },
@@ -18,7 +18,7 @@
       "Action": "sts:AssumeRole",
       "Condition": {
         "StringEquals": {
-          "aws:SourceAccount": "........"
+          "aws:SourceAccount": "..."
         }
       }
     }

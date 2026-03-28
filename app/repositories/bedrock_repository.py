@@ -5,6 +5,7 @@ Wraps the low-level boto3 ``bedrock-agent`` client and translates AWS SDK
 exceptions into domain exceptions so upper layers stay decoupled from boto3.
 """
 
+import time
 from typing import Any
 
 import boto3
@@ -124,9 +125,74 @@ class BedrockRepository:
         except ClientError as exc:
             self._handle_client_error(exc, context=f"delete_agent({agent_id})")
 
+    # Bedrock agent statuses that indicate the agent is still transitioning and
+    # cannot yet accept a PrepareAgent or UpdateAgent call.
+    _TRANSIENT_STATUSES: frozenset[str] = frozenset({"CREATING", "UPDATING", "PREPARING", "VERSIONING"})
+
+    def wait_until_stable(
+        self,
+        agent_id: str,
+        *,
+        poll_interval: float = 3.0,
+        timeout: float = 120.0,
+    ) -> dict[str, Any]:
+        """
+        Poll ``GetAgent`` until the agent leaves all transient states.
+
+        Bedrock agent creation/update is asynchronous. Calling ``PrepareAgent``
+        while the agent is still in ``CREATING`` (or ``UPDATING``) raises a
+        ``ValidationException``. This method blocks until the agent reaches a
+        stable status (``NOT_PREPARED``, ``PREPARED``, ``FAILED``, etc.) or the
+        timeout is exceeded.
+
+        Args:
+            agent_id: Bedrock agent identifier.
+            poll_interval: Seconds to wait between status checks.
+            timeout: Maximum seconds to wait before raising an error.
+
+        Returns:
+            dict: The latest ``agent`` object from Bedrock.
+
+        Raises:
+            BedrockServiceError: If the agent enters ``FAILED`` status or the
+                timeout is exceeded while still in a transient state.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            agent = self.get_agent(agent_id)
+            status: str = agent.get("agentStatus", "")
+            logger.debug("Agent %s status: %s", agent_id, status)
+
+            if status == "FAILED":
+                raise BedrockServiceError(
+                    f"Agent {agent_id} entered FAILED status while waiting for it to become stable."
+                )
+
+            if status not in self._TRANSIENT_STATUSES:
+                logger.info("Agent %s is now stable with status: %s", agent_id, status)
+                return agent
+
+            if time.monotonic() >= deadline:
+                raise BedrockServiceError(
+                    f"Timed out waiting for agent {agent_id} to leave transient status '{status}' "
+                    f"after {timeout}s. Try increasing the timeout."
+                )
+
+            logger.info(
+                "Agent %s is in transient status '%s', retrying in %.1fs…",
+                agent_id,
+                status,
+                poll_interval,
+            )
+            time.sleep(poll_interval)
+
     def prepare_agent(self, agent_id: str) -> str:
         """
-        Call ``PrepareAgent`` to make the agent available for testing/invocation.
+        Wait for the agent to be stable, then call ``PrepareAgent``.
+
+        Bedrock requires the agent to be out of ``CREATING``/``UPDATING`` state
+        before ``PrepareAgent`` can be invoked. This method transparently polls
+        until the agent is ready and then issues the prepare call.
 
         Args:
             agent_id: Bedrock agent identifier.
@@ -134,6 +200,9 @@ class BedrockRepository:
         Returns:
             str: The prepared agent version string.
         """
+        logger.info("Waiting for agent %s to be stable before preparing…", agent_id)
+        self.wait_until_stable(agent_id)
+
         logger.info("Preparing Bedrock agent: %s", agent_id)
         try:
             response = self._client.prepare_agent(agentId=agent_id)
