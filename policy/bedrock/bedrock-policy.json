@@ -18,7 +18,9 @@
         "bedrock:ListAgentAliases",
         "bedrock:TagResource",
         "bedrock:UntagResource",
-        "bedrock:ListTagsForResource"
+        "bedrock:ListTagsForResource",
+        "bedrock:ListFoundationModels",
+        "bedrock:GetFoundationModel"
       ],
       "Resource": "*"
     },
