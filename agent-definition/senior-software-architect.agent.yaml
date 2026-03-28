@@ -16,7 +16,7 @@ spec:
     reviewing architecture decisions, and producing implementation-ready guidance.
 
   model:
-    id: meta.llama3-3-70b-instruct-v1:0
+    id: us.meta.llama3-3-70b-instruct-v1:0
     temperature: 0.2
     topP: 0.9
     maxTokens: 2048
