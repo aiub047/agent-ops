@@ -47,6 +47,8 @@ def bedrock_repo() -> MagicMock:
     ]}
     repo.update_agent.return_value = SAMPLE_BEDROCK_AGENT
     repo.prepare_agent.return_value = "DRAFT"
+    repo.list_tags_for_resource.return_value = {}
+    repo.wait_until_deleted.return_value = None
     return repo
 
 

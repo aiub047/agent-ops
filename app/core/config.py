@@ -29,15 +29,15 @@ class Settings(BaseSettings):
 
     # ── Application ───────────────────────────────────────────────────────────
     APP_NAME: str = "agent-ops-api"
-    APP_VERSION: str = "1.0.0"
+    APP_VERSION: str = "1.0.13"
     APP_ENV: Literal["local", "dev", "prod"] = "local"
     DEBUG: bool = False
     LOG_LEVEL: str = "INFO"
 
     # ── AWS ───────────────────────────────────────────────────────────────────
     AWS_REGION: str = "us-east-1"
-    AWS_PROFILE: str | None = None          # For local/dev; use IAM role in prod
-    AWS_ACCESS_KEY_ID: str | None = None    # Optional; prefer profile or IAM role
+    AWS_PROFILE: str | None = None  # For local/dev; use IAM role in prod
+    AWS_ACCESS_KEY_ID: str | None = None  # Optional; prefer profile or IAM role
     AWS_SECRET_ACCESS_KEY: str | None = None
 
     # ── Bedrock ───────────────────────────────────────────────────────────────
@@ -66,4 +66,3 @@ def get_settings() -> Settings:
     app_env = os.getenv("APP_ENV", "local")
     env_file = ENV_DIR / f".env.{app_env}"
     return Settings(_env_file=str(env_file))  # type: ignore[call-arg]
-

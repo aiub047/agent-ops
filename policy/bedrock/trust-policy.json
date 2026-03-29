@@ -5,9 +5,15 @@
       "Sid": "AllowEKSIRSA",
       "Effect": "Allow",
       "Principal": {
-        "Federated": "..."
+        "Federated": "arn:aws:iam::314630006302:oidc-provider/oidc.eks.us-east-1.amazonaws.com/id/BC7A6355A235E9CDB9E1FFC634D891E6"
       },
-      "Action": "sts:AssumeRoleWithWebIdentity"
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "oidc.eks.us-east-1.amazonaws.com/id/BC7A6355A235E9CDB9E1FFC634D891E6:aud": "sts.amazonaws.com",
+          "oidc.eks.us-east-1.amazonaws.com/id/BC7A6355A235E9CDB9E1FFC634D891E6:sub": "system:serviceaccount:default:bedrock-sa"
+        }
+      }
     },
     {
       "Sid": "AllowBedrockAgentExecution",
@@ -18,7 +24,7 @@
       "Action": "sts:AssumeRole",
       "Condition": {
         "StringEquals": {
-          "aws:SourceAccount": "..."
+          "aws:SourceAccount": "314630006302"
         }
       }
     }

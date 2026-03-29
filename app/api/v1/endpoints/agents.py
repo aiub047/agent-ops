@@ -6,6 +6,7 @@ Provides CRUD operations for Amazon Bedrock Agents driven by YAML definition fil
 Routes:
     POST   /agents/create              – create agent from definition file
     POST   /agents/create-update       – create or update (upsert) agent from definition file
+    POST   /agents/deploy-yml          – create or update agent from inline YAML with redeploy control
     GET    /agents                     – list all agents
     GET    /agents/definitions         – list available definition files
     GET    /agents/bedrock-models      – list available model IDs and inference profiles
@@ -14,15 +15,17 @@ Routes:
     DELETE /agents/{agent_id}          – delete agent
 """
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, Response, status
 
 from app.api.dependencies import AgentServiceDep
+from app.core.config import get_settings
 from app.models.agent import (
     AgentResponse,
     AgentSummary,
     BedrockModelsResponse,
     CreateAgentFromDefinitionRequest,
     CreateOrUpdateAgentRequest,
+    DeployYmlRequest,
     UpdateAgentFromDefinitionRequest,
 )
 from app.models.common import PaginatedResponse
@@ -30,18 +33,17 @@ from app.models.common import PaginatedResponse
 router = APIRouter(prefix="/agents", tags=["agents"])
 
 
-
 @router.get("/version", summary="Get API version")
 def version() -> str:
-    return "1.0.6"
+    return get_settings().APP_VERSION
 
 
 @router.post("/create",
-    response_model=AgentResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create a Bedrock agent from a YAML definition file",
-    response_description="The newly created agent.",
-)
+             response_model=AgentResponse,
+             status_code=status.HTTP_201_CREATED,
+             summary="Create a Bedrock agent from a YAML definition file",
+             response_description="The newly created agent.",
+             )
 def create_agent(
         request: CreateAgentFromDefinitionRequest,
         service: AgentServiceDep,
@@ -191,3 +193,48 @@ def delete_agent(
     service.delete_agent(agent_id)
 
 
+@router.post(
+    "/deploy-yml",
+    response_model=AgentResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Deploy a Bedrock agent from inline YAML with redeploy control",
+    response_description="The created or updated agent.",
+)
+def deploy_yaml(
+        request: DeployYmlRequest,
+        service: AgentServiceDep,
+        response: Response,
+) -> AgentResponse:
+    """
+    Deploy a Bedrock agent by supplying the full agent definition as a raw YAML
+    string together with source-control metadata.
+
+    **Behaviour matrix (agent already exists):**
+
+    | ``redeploy`` | ``recreate`` | Agent exists | Action | Status |
+    |---|---|---|---|---|
+    | ``false`` | ``false`` | no  | create          | **201** |
+    | ``false`` | ``false`` | yes | **409 Conflict**| —       |
+    | ``true``  | ``false`` | no  | create          | **201** |
+    | ``true``  | ``false`` | yes | update in-place | **200** |
+    | ``true``  | ``true``  | no  | create          | **201** |
+    | ``true``  | ``true``  | yes | delete + create | **201** |
+    | ``false`` | ``true``  | no  | create          | **201** |
+    | ``false`` | ``true``  | yes | delete + create | **201** |
+
+    ``recreate=true`` always takes priority: when the agent exists it will be deleted
+    and recreated regardless of ``redeploy``.
+
+    The ``source`` object (repo, branch, commitSha, filePath, mergedBy) is
+    recorded in logs for full deployment traceability but is not persisted to
+    Bedrock.
+    """
+    agent, created = service.deploy_yml(
+        agent_key=request.agent_key,
+        yaml_data=request.yaml_data,
+        redeploy=request.redeploy,
+        recreate=request.recreate,
+    )
+    if not created:
+        response.status_code = status.HTTP_200_OK
+    return agent

@@ -6,7 +6,7 @@ Orchestrates agent CRUD operations by combining the AgentDefinitionRepository
 Implements AgentServiceProtocol so it can be swapped in tests.
 """
 
-from app.core.exceptions import BedrockServiceError
+from app.core.exceptions import AgentConflictError, BedrockServiceError
 from app.core.logging import get_logger
 from app.models.agent import (
     AgentResponse,
@@ -89,7 +89,7 @@ class BedrockAgentService:
             self._bedrock.prepare_agent(agent_id)
             raw = self._bedrock.get_agent(agent_id)
 
-        return AgentResponse.model_validate(raw)
+        return AgentResponse.model_validate(self._enrich_with_tags(raw))
 
     def get_agent(self, agent_id: str) -> AgentResponse:
         """
@@ -102,7 +102,7 @@ class BedrockAgentService:
             AgentResponse: Agent details.
         """
         raw = self._bedrock.get_agent(agent_id)
-        return AgentResponse.model_validate(raw)
+        return AgentResponse.model_validate(self._enrich_with_tags(raw))
 
     def list_agents(
         self,
@@ -175,7 +175,7 @@ class BedrockAgentService:
             self._bedrock.prepare_agent(agent_id)
             raw = self._bedrock.get_agent(agent_id)
 
-        return AgentResponse.model_validate(raw)
+        return AgentResponse.model_validate(self._enrich_with_tags(raw))
 
     def delete_agent(self, agent_id: str) -> None:
         """
@@ -190,6 +190,54 @@ class BedrockAgentService:
     def list_definitions(self) -> list[str]:
         """Return the names of all YAML definitions in the agent-definition directory."""
         return self._definitions.list_definitions()
+
+    def list_bedrock_models(self) -> BedrockModelsResponse:
+        """
+        Return all foundation models and cross-region inference profiles that
+        can be used as ``spec.model.id`` in an agent definition YAML.
+
+        * **foundation_models** – on-demand text models addressable by their
+          bare model ID (e.g. ``amazon.titan-text-express-v1``).
+        * **inference_profiles** – system-defined cross-region profiles such as
+          ``us.meta.llama3-3-70b-instruct-v1:0``.  Use these for models that
+          raise *"on-demand throughput isn't supported"* when addressed by their
+          bare model ID.
+
+        Returns:
+            BedrockModelsResponse: Combined listing of usable model IDs.
+        """
+        raw_models = self._bedrock.list_foundation_models()
+        raw_profiles = self._bedrock.list_inference_profiles()
+
+        foundation_models = [
+            BedrockModelSummary(
+                model_id=m.get("modelId", ""),
+                model_name=m.get("modelName", ""),
+                provider_name=m.get("providerName", ""),
+                input_modalities=m.get("inputModalities", []),
+                output_modalities=m.get("outputModalities", []),
+                inference_types_supported=m.get("inferenceTypesSupported", []),
+            )
+            for m in raw_models
+        ]
+
+        inference_profiles = [
+            BedrockInferenceProfileSummary(
+                profile_id=p.get("inferenceProfileId", ""),
+                profile_name=p.get("inferenceProfileName", ""),
+                status=p.get("status", ""),
+                profile_type=p.get("type", ""),
+                description=p.get("description"),
+            )
+            for p in raw_profiles
+        ]
+
+        return BedrockModelsResponse(
+            foundation_models=foundation_models,
+            inference_profiles=inference_profiles,
+            total_foundation_models=len(foundation_models),
+            total_inference_profiles=len(inference_profiles),
+        )
 
     def create_or_update_agent_from_definition(
         self,
@@ -237,6 +285,7 @@ class BedrockAgentService:
                 existing_id,
             )
             self._bedrock.delete_agent(existing_id)
+            self._bedrock.wait_until_deleted(existing_id)
             return self.create_agent(definition, prepare=prepare)
 
         logger.info(
@@ -245,6 +294,112 @@ class BedrockAgentService:
             existing_id,
         )
         return self.update_agent(existing_id, definition, prepare=prepare)
+
+    def deploy_yml(
+        self,
+        agent_key: str,
+        yaml_data: str | dict,
+        redeploy: bool,
+        recreate: bool = False,
+    ) -> tuple[AgentResponse, bool]:
+        """
+        Deploy a Bedrock agent from a YAML definition with explicit redeploy control.
+
+        *yaml_data* may be supplied as:
+
+        * A **dict** (JSON object in the request body) — used directly without
+          any parsing step.  This is the recommended form because it avoids
+          JSON encoding issues with multi-line strings.
+        * A **str** — parsed with ``yaml.safe_load``.  Newlines inside a JSON
+          string must be escaped as ``\\n``; literal newlines are invalid JSON.
+
+        Applies one of four strategies based on *redeploy* and *recreate*:
+
+        * ``redeploy=False, recreate=False`` → **create-only**: create if new;
+          raise :class:`~app.core.exceptions.AgentConflictError` (HTTP 409) if
+          the agent already exists.
+        * ``redeploy=True,  recreate=False`` → **upsert in-place**: create if new,
+          update the existing agent via ``UpdateAgent`` if found (HTTP 200).
+          Requires ``bedrock:UpdateAgent`` on the caller's IAM role.
+        * ``redeploy=True,  recreate=True``  → **delete + recreate**: create if new,
+          or delete the existing agent and create a fresh one (HTTP 201).
+        * ``redeploy=False, recreate=True``  → **force recreate**: create if new,
+          or delete the existing agent and create a fresh one (HTTP 201).
+          Use this when you want a clean replacement without allowing silent in-place
+          updates.
+
+        Args:
+            agent_key: Logical key for the agent (used in log messages for traceability).
+            yaml_data: Agent definition as a dict (JSON object) or a YAML string.
+            redeploy: Controls update behaviour when the agent already exists.
+            recreate: When ``True`` and ``redeploy=True``, delete then recreate the
+                agent instead of updating in-place.  Defaults to ``False``.
+
+        Returns:
+            tuple[AgentResponse, bool]: The resulting agent details and a flag that
+            is ``True`` when the agent was **created** (HTTP 201) or ``False`` when
+            it was **updated** (HTTP 200).
+
+        Raises:
+            BedrockServiceError: If the YAML is malformed or fails schema validation.
+            AgentConflictError: If ``redeploy=False`` and the agent already exists.
+        """
+        logger.info(
+            "deploy_yml: Processing agent key '%s' (redeploy=%s, recreate=%s)",
+            agent_key, redeploy, recreate,
+        )
+
+        if isinstance(yaml_data, dict):
+            raw = yaml_data
+        else:
+            try:
+                raw = yaml.safe_load(yaml_data)
+            except yaml.YAMLError as exc:
+                raise BedrockServiceError(f"Malformed YAML: {exc}") from exc
+
+        if not isinstance(raw, dict):
+            raise BedrockServiceError("Agent definition must be a mapping at the top level.")
+
+        try:
+            definition = AgentDefinition.model_validate(raw)
+        except ValidationError as exc:
+            raise BedrockServiceError(
+                f"Agent definition failed schema validation: {exc}"
+            ) from exc
+
+        agent_name = definition.metadata.name
+        existing_id = self._find_agent_by_name(agent_name)
+
+        # ── Agent does not exist → always create ─────────────────────────────
+        if existing_id is None:
+            logger.info("deploy_yml: Agent '%s' not found; creating new.", agent_name)
+            return self.create_agent(definition, prepare=True), True
+
+        # ── Agent exists ──────────────────────────────────────────────────────
+        if recreate:
+            # redeploy=true|false + recreate=true → delete then create fresh
+            logger.info(
+                "deploy_yml: Agent '%s' (%s) exists; deleting and recreating (recreate=True).",
+                agent_name, existing_id,
+            )
+            self._bedrock.delete_agent(existing_id)
+            self._bedrock.wait_until_deleted(existing_id)
+            return self.create_agent(definition, prepare=True), True
+
+        if not redeploy:
+            # redeploy=false + recreate=false → conflict
+            raise AgentConflictError(
+                f"Agent '{agent_name}' (id={existing_id}) already exists. "
+                "Set redeploy=true to update it, or recreate=true to delete and recreate it."
+            )
+
+        # redeploy=true + recreate=false → update in-place
+        logger.info(
+            "deploy_yml: Agent '%s' (%s) exists; updating in-place "
+            "(redeploy=True, recreate=False).",
+            agent_name, existing_id,
+        )
+        return self.update_agent(existing_id, definition, prepare=True), False
 
     # ── Private helpers ───────────────────────────────────────────────────────
 
@@ -271,110 +426,163 @@ class BedrockAgentService:
             next_token = response.get("nextToken")
             if not next_token:
                 return None
-        """
-        Return all foundation models and cross-region inference profiles usable
-        in an agent definition YAML.
-
-        Foundation models are filtered to text-output, on-demand models.
-        Inference profiles are system-defined cross-region profiles (``us.*``,
-        ``eu.*``, ``ap.*``) required by models like Meta Llama.
-
-        Returns:
-            BedrockModelsResponse: Combined listing of model IDs and profile IDs.
-        """
-        raw_models = self._bedrock.list_foundation_models()
-        raw_profiles = self._bedrock.list_inference_profiles()
-
-        foundation_models = [
-            BedrockModelSummary(
-                model_id=m.get("modelId", ""),
-                model_name=m.get("modelName", ""),
-                provider_name=m.get("providerName", ""),
-                input_modalities=m.get("inputModalities", []),
-                output_modalities=m.get("outputModalities", []),
-                inference_types_supported=m.get("inferenceTypesSupported", []),
-            )
-            for m in raw_models
-        ]
-
-        inference_profiles = [
-            BedrockInferenceProfileSummary(
-                profile_id=p.get("inferenceProfileId", ""),
-                profile_name=p.get("inferenceProfileName", ""),
-                status=p.get("status", ""),
-                profile_type=p.get("type", ""),
-                description=p.get("description"),
-            )
-            for p in raw_profiles
-        ]
-
-        return BedrockModelsResponse(
-            foundation_models=foundation_models,
-            inference_profiles=inference_profiles,
-            total_foundation_models=len(foundation_models),
-            total_inference_profiles=len(inference_profiles),
-        )
 
     # ── Private helpers ───────────────────────────────────────────────────────
+
+    def _enrich_with_tags(self, raw: dict) -> dict:
+        """
+        Inject the agent's resource tags into *raw* (in-place and returned).
+
+        Bedrock's ``CreateAgent``, ``UpdateAgent``, and ``GetAgent`` responses
+        all omit ``tags`` from the returned ``agent`` object.  Tags are a
+        separate resource attribute and must be fetched with
+        ``ListTagsForResource``.  This helper performs that extra call using
+        the ``agentArn`` already present in *raw* and merges the result back
+        so that ``AgentResponse`` always reflects the real tag set.
+
+        Args:
+            raw: The ``agent`` dict returned by any Bedrock agent API call.
+
+        Returns:
+            dict: The same *raw* dict, now with a ``"tags"`` key populated.
+        """
+        agent_arn: str | None = raw.get("agentArn")
+        if agent_arn:
+            raw["tags"] = self._bedrock.list_tags_for_resource(agent_arn)
+        return raw
 
     def _resolve_role_arn(self, definition: AgentDefinition) -> str:
         """
         Return the IAM role ARN for the agent.
 
         Resolution order:
-        1. ``spec.k8s.roleArn`` in the agent definition YAML (preferred –
-           gives each agent its own least-privilege role).
-        2. ``default_role_arn`` supplied at service construction time (from the
-           ``DEFAULT_BEDROCK_AGENT_ROLE_ARN`` env var) – a convenience fallback
-           for simple/shared setups.
+        1. ``spec.serviceRoleArn`` — explicit service role in the spec.
+        2. ``spec.deployment.roleArn`` — role declared in the deployment block.
+        3. ``default_role_arn`` — fallback from the
+           ``DEFAULT_BEDROCK_AGENT_ROLE_ARN`` environment variable.
 
         Raises:
-            BedrockServiceError: If neither source provides a role ARN.
+            BedrockServiceError: If none of the sources provide a role ARN.
         """
-        role_arn = (definition.spec.deployment.role_arn or self._default_role_arn or "").strip()
+        spec = definition.spec
+        role_arn = (
+            spec.service_role_arn
+            or spec.deployment.role_arn
+            or self._default_role_arn
+            or ""
+        ).strip()
         if not role_arn:
             raise BedrockServiceError(
                 f"No IAM role ARN found for agent '{definition.metadata.name}'. "
-                "Set 'spec.k8s.roleArn' in the agent definition YAML, "
+                "Set 'spec.serviceRoleArn' or 'spec.deployment.roleArn' in the definition, "
                 "or set DEFAULT_BEDROCK_AGENT_ROLE_ARN in the environment as a fallback."
             )
         return role_arn
 
     def _build_create_params(self, definition: AgentDefinition) -> dict:
         spec = definition.spec
+        # foundationModel shorthand takes precedence over spec.model.id
+        model_id = spec.foundation_model or spec.model.id
+        # agentNameOverride takes precedence over metadata.name
+        agent_name = spec.deployment.agent_name_override or definition.metadata.name
+        # spec-level TTL takes precedence over legacy session.idle_ttl_seconds
+        idle_ttl = spec.idle_session_ttl_in_seconds or spec.session.idle_ttl_seconds
+        # Merge metadata tags and deployment tags (deployment tags win on conflict)
+        tags = {**definition.metadata.tags, **spec.deployment.tags}
+
         params: dict = {
-            "agentName": definition.metadata.name,
+            "agentName": agent_name,
             "agentResourceRoleArn": self._resolve_role_arn(definition),
-            "foundationModel": spec.model.id,
+            "foundationModel": model_id,
             "instruction": spec.instruction,
-            "idleSessionTTLInSeconds": spec.session.idle_ttl_seconds,
+            "idleSessionTTLInSeconds": idle_ttl,
         }
         if spec.description:
             params["description"] = spec.description
-        if definition.metadata.tags:
-            params["tags"] = definition.metadata.tags
+        if tags:
+            params["tags"] = tags
+        if spec.agent_collaboration and spec.agent_collaboration != "DISABLED":
+            params["agentCollaboration"] = spec.agent_collaboration
+        if spec.customer_encryption_key_arn:
+            params["customerEncryptionKeyArn"] = spec.customer_encryption_key_arn
         if spec.guardrails.enabled and spec.guardrails.guardrail_id:
             params["guardrailConfiguration"] = {
                 "guardrailIdentifier": spec.guardrails.guardrail_id,
                 "guardrailVersion": spec.guardrails.guardrail_version or "DRAFT",
             }
+        if spec.prompt_override_configuration:
+            params["promptOverrideConfiguration"] = self._serialize_prompt_override(
+                spec.prompt_override_configuration
+            )
         return params
 
     def _build_update_params(self, definition: AgentDefinition) -> dict:
         spec = definition.spec
+        model_id = spec.foundation_model or spec.model.id
+        agent_name = spec.deployment.agent_name_override or definition.metadata.name
+        idle_ttl = spec.idle_session_ttl_in_seconds or spec.session.idle_ttl_seconds
+
         params: dict = {
-            "agentName": definition.metadata.name,
+            "agentName": agent_name,
             "agentResourceRoleArn": self._resolve_role_arn(definition),
-            "foundationModel": spec.model.id,
+            "foundationModel": model_id,
             "instruction": spec.instruction,
-            "idleSessionTTLInSeconds": spec.session.idle_ttl_seconds,
+            "idleSessionTTLInSeconds": idle_ttl,
         }
         if spec.description:
             params["description"] = spec.description
+        if spec.agent_collaboration and spec.agent_collaboration != "DISABLED":
+            params["agentCollaboration"] = spec.agent_collaboration
+        if spec.customer_encryption_key_arn:
+            params["customerEncryptionKeyArn"] = spec.customer_encryption_key_arn
         if spec.guardrails.enabled and spec.guardrails.guardrail_id:
             params["guardrailConfiguration"] = {
                 "guardrailIdentifier": spec.guardrails.guardrail_id,
                 "guardrailVersion": spec.guardrails.guardrail_version or "DRAFT",
             }
+        if spec.prompt_override_configuration:
+            params["promptOverrideConfiguration"] = self._serialize_prompt_override(
+                spec.prompt_override_configuration
+            )
         return params
+
+    @staticmethod
+    def _serialize_prompt_override(config: "PromptOverrideConfiguration") -> dict:
+        """
+        Serialize a ``PromptOverrideConfiguration`` into a boto3-compatible dict.
+
+        Two normalisation steps are applied after standard Pydantic serialization:
+
+        1. **Key rename**: The user-facing field ``overrideLambdaArn`` is renamed to
+           ``overrideLambda`` because that is what the boto3 Bedrock SDK expects.
+
+        2. **DEFAULT-mode stripping**: When a ``PromptConfiguration`` has
+           ``promptCreationMode = DEFAULT``, the Bedrock API only accepts
+           ``promptType`` and ``promptCreationMode`` in that object.  Sending any
+           other field (``promptState``, ``inferenceConfiguration``,
+           ``basePromptTemplate``, ``parserMode``) raises a ``ValidationException``.
+           This method removes all such fields automatically.
+
+        Args:
+            config: The parsed prompt override configuration.
+
+        Returns:
+            dict: boto3-ready ``promptOverrideConfiguration`` value.
+        """
+        data = config.model_dump(by_alias=True, exclude_none=True)
+
+        # boto3 SDK uses "overrideLambda"; our schema alias is "overrideLambdaArn"
+        if "overrideLambdaArn" in data:
+            data["overrideLambda"] = data.pop("overrideLambdaArn")
+
+        # Strip all fields that are incompatible with promptCreationMode=DEFAULT.
+        # Only promptType and promptCreationMode are allowed in that mode.
+        _DEFAULT_MODE_ONLY = {"promptType", "promptCreationMode"}
+        for pc in data.get("promptConfigurations", []):
+            if pc.get("promptCreationMode") == "DEFAULT":
+                for key in list(pc.keys()):
+                    if key not in _DEFAULT_MODE_ONLY:
+                        del pc[key]
+
+        return data
 

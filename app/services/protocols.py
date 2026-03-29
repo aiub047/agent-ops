@@ -7,7 +7,7 @@ enabling dependency injection and easy unit-test substitution.
 
 from typing import Protocol, runtime_checkable
 
-from app.models.agent import AgentResponse, AgentSummary
+from app.models.agent import AgentResponse, AgentSummary, BedrockModelsResponse
 from app.models.common import PaginatedResponse
 from app.schemas.agent_definition import AgentDefinition
 
@@ -49,6 +49,10 @@ class AgentServiceProtocol(Protocol):
         """Permanently delete an agent."""
         ...
 
+    def list_bedrock_models(self) -> BedrockModelsResponse:
+        """Return all usable foundation model IDs and inference profile IDs."""
+        ...
+
     def create_or_update_agent_from_definition(
         self,
         definition_file: str,
@@ -56,5 +60,24 @@ class AgentServiceProtocol(Protocol):
         recreate: bool = False,
     ) -> AgentResponse:
         """Create a new agent or update (or recreate) an existing one by name."""
+        ...
+
+    def deploy_yml(
+        self,
+        agent_key: str,
+        yaml_data: str | dict,
+        redeploy: bool,
+        recreate: bool = False,
+    ) -> tuple[AgentResponse, bool]:
+        """Deploy from inline YAML string or JSON object; conflict-guard when redeploy=False.
+
+        Returns:
+            tuple[AgentResponse, bool]: Agent details and ``True`` if the agent was
+            **created** (HTTP 201), ``False`` if it was **updated** (HTTP 200).
+
+        When ``redeploy=True`` and the agent already exists:
+        * ``recreate=False`` — update in-place (requires ``bedrock:UpdateAgent``).
+        * ``recreate=True``  — delete then create fresh (no ``bedrock:UpdateAgent`` needed).
+        """
         ...
 

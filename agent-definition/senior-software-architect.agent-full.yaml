@@ -1,0 +1,205 @@
+apiVersion: agentops/v1
+kind: BedrockAgent
+
+metadata:
+  name: senior-software-architect
+  displayName: Senior Software Architect
+  version: 1.0.0
+  owner: platform-architecture
+  description: Platform-managed Bedrock agent for architecture guidance
+  labels:
+    team: platform
+    managedBy: agentops
+  tags:
+    domain: engineering
+    persona: architect
+    environment: dev
+  annotations:
+    gitlab.path: agents/senior-software-architect.yaml
+    gitlab.commitSha: abc123
+  createdBy: john.doe
+  updatedBy: john.doe
+
+spec:
+  description: >-
+    Senior Software Architect assistant for designing scalable systems,
+    reviewing architecture decisions, and producing implementation-ready guidance.
+
+  instruction: |
+    You are a Senior Software Architect.
+    Your role is to provide practical, production-ready architecture guidance.
+
+    Core responsibilities:
+    1) Translate business requirements into clear technical architecture.
+    2) Evaluate trade-offs (cost, performance, reliability, security, operability).
+    3) Propose phased implementation plans with measurable milestones.
+    4) Enforce best practices: SOLID, clean code, modular design, and testability.
+
+    Decision principles:
+    - Prefer simple and maintainable solutions over unnecessary complexity.
+    - Identify assumptions and risks early.
+    - Explicitly call out non-functional requirements and constraints.
+    - Provide alternatives with pros/cons when uncertainty exists.
+
+    Response style:
+    - Be concise but actionable.
+    - Use structured outputs (sections, bullets, tables when useful).
+    - Include architecture diagrams in text form (ASCII) when they add clarity.
+    - Never invent unavailable system details; ask clarifying questions first.
+
+  # Core Bedrock settings
+  foundationModel: us.meta.llama3-3-70b-instruct-v1:0
+
+  model:
+    id: us.meta.llama3-3-70b-instruct-v1:0
+    provider: meta
+    region: us-east-1
+    temperature: 0.2
+    topP: 0.9
+    topK: 50
+    maxTokens: 2048
+    stopSequences:
+      - "END"
+    streaming: false
+    additionalModelRequestFields:
+      frequency_penalty: 0.0
+
+  agentCollaboration: DISABLED
+  idleSessionTtlInSeconds: 1800
+  customerEncryptionKeyArn: arn:aws:kms:us-east-1:123456789012:key/xxxx
+  serviceRoleArn: arn:aws:iam::123456789012:role/bedrock-agent-service-role
+
+  # Prompt overrides (advanced)
+  promptOverrideConfiguration:
+    overrideLambdaArn: arn:aws:lambda:us-east-1:123456789012:function:prompt-override
+    promptConfigurations:
+      - promptType: PRE_PROCESSING
+        promptState: ENABLED
+        basePromptTemplate: "Pre-processing template"
+        inferenceConfiguration:
+          maximumLength: 2048
+          temperature: 0.2
+          topP: 0.9
+          topK: 50
+
+      - promptType: ORCHESTRATION
+        promptState: ENABLED
+        basePromptTemplate: "Orchestration template"
+        inferenceConfiguration:
+          maximumLength: 2048
+          temperature: 0.2
+          topP: 0.9
+          topK: 50
+
+  goals:
+    - Design scalable, secure, and observable backend systems
+    - Improve developer velocity and operational excellence
+    - Reduce architecture risk through explicit trade-off analysis
+
+  constraints:
+    - Follow cloud security best practices and least privilege
+    - Optimize for production readiness and maintainability
+    - Prefer managed services where they reduce operational burden
+
+  responseContract:
+    format: markdown
+    sections:
+      - assumptions
+      - proposed-architecture
+      - trade-offs
+      - implementation-plan
+      - risks-and-mitigations
+      - testing-and-observability
+    maxSectionCount: 10
+    requireStructuredOutput: true
+
+  # Action groups (tools)
+  actionGroups:
+    - name: architecture-knowledge-search
+      description: Search architecture guidelines and standards
+      enabled: true
+      executor:
+        type: lambda
+        arn: arn:aws:lambda:us-east-1:123456789012:function:architecture-knowledge-search-dev
+        timeoutSeconds: 60
+
+      apiSchema:
+        payload:
+          openapi: |
+            openapi: 3.0.0
+            info:
+              title: Architecture Search API
+              version: 1.0.0
+
+      functionSchema:
+        functions:
+          - name: searchArchitectureDocs
+            description: Search internal architecture docs
+            parameters:
+              type: object
+              properties:
+                query:
+                  type: string
+              required:
+                - query
+
+  # Knowledge bases
+  knowledgeBases:
+    - id: kb-engineering-standards
+      description: Internal engineering standards and ADR history
+      enabled: true
+      retrieval:
+        topK: 6
+        scoreThreshold: 0.7
+        searchType: SEMANTIC
+        overrideSearchType: SEMANTIC
+        filter:
+          equals:
+            key: environment
+            value: dev
+
+      promptTemplate: |
+        Use company standards to answer the question.
+
+  # Guardrails
+  guardrails:
+    enabled: true
+    guardrailId: gr-123456
+    guardrailVersion: DRAFT
+
+  # Memory (future-ready)
+  memory:
+    enabled: false
+    type: SESSION
+
+  # Observability
+  observability:
+    logLevel: info
+    traceEnabled: true
+    metricsEnabled: true
+
+  # Aliases
+  aliases:
+    - name: dev
+      description: Development alias
+      routing:
+        trafficPercent: 100
+      tags:
+        environment: dev
+
+  # Deployment settings
+  deployment:
+    region: us-east-1
+    roleArn: arn:aws:iam::123456789012:role/bedrock-agent-service-role
+    agentNameOverride: senior-software-architect-dev
+    autoPrepare: true
+    createAlias: true
+    defaultAliasName: dev
+    publish: true
+    tags:
+      environment: dev
+
+  # Lifecycle management
+  lifecycle:
+    desiredState: DEPLOYED
+    deletionPolicy: RETAIN

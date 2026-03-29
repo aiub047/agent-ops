@@ -6,10 +6,10 @@ exceptions into domain exceptions so upper layers stay decoupled from boto3.
 """
 
 import time
-from typing import Any
+from typing import Any, NoReturn
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, ParamValidationError
 
 from app.core.exceptions import AgentNotFoundError, BedrockServiceError
 from app.core.logging import get_logger
@@ -56,6 +56,8 @@ class BedrockRepository:
         try:
             response = self._client.create_agent(**kwargs)
             return response["agent"]
+        except ParamValidationError as exc:
+            raise BedrockServiceError(f"Invalid parameters for create_agent: {exc}") from exc
         except ClientError as exc:
             self._handle_client_error(exc, context="create_agent")
 
@@ -111,6 +113,8 @@ class BedrockRepository:
         try:
             response = self._client.update_agent(agentId=agent_id, **kwargs)
             return response["agent"]
+        except ParamValidationError as exc:
+            raise BedrockServiceError(f"Invalid parameters for update_agent({agent_id}): {exc}") from exc
         except ClientError as exc:
             self._handle_client_error(exc, context=f"update_agent({agent_id})")
 
@@ -124,6 +128,8 @@ class BedrockRepository:
         logger.info("Deleting Bedrock agent: %s", agent_id)
         try:
             self._client.delete_agent(agentId=agent_id, skipResourceInUseCheck=False)
+        except ParamValidationError as exc:
+            raise BedrockServiceError(f"Invalid parameters for delete_agent({agent_id}): {exc}") from exc
         except ClientError as exc:
             self._handle_client_error(exc, context=f"delete_agent({agent_id})")
 
@@ -234,6 +240,76 @@ class BedrockRepository:
             )
             time.sleep(poll_interval)
 
+    def wait_until_deleted(
+        self,
+        agent_id: str,
+        *,
+        poll_interval: float = 3.0,
+        timeout: float = 120.0,
+    ) -> None:
+        """
+        Poll ``GetAgent`` until the agent no longer exists.
+
+        ``DeleteAgent`` returns before the name is fully released in Bedrock.
+        Calling ``CreateAgent`` with the same name immediately after delete can
+        raise a ``ConflictException``.  This method blocks until
+        ``GetAgent`` returns ``ResourceNotFoundException``, confirming the agent
+        has been fully removed and the name is free to reuse.
+
+        Args:
+            agent_id: Bedrock agent identifier that was just deleted.
+            poll_interval: Seconds to wait between status checks.
+            timeout: Maximum seconds to wait before raising an error.
+
+        Raises:
+            BedrockServiceError: If the timeout is exceeded before the agent
+                disappears.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                self.get_agent(agent_id)
+            except AgentNotFoundError:
+                logger.info("Agent %s has been fully deleted.", agent_id)
+                return
+
+            if time.monotonic() >= deadline:
+                raise BedrockServiceError(
+                    f"Timed out waiting for agent {agent_id} to be fully deleted "
+                    f"after {timeout}s."
+                )
+
+            logger.info(
+                "Agent %s still exists after delete; retrying in %.1fs…",
+                agent_id,
+                poll_interval,
+            )
+            time.sleep(poll_interval)
+
+    def list_tags_for_resource(self, resource_arn: str) -> dict[str, str]:
+        """
+        Return the tags attached to a Bedrock resource.
+
+        The Bedrock ``GetAgent`` and ``CreateAgent`` responses do **not** include
+        tags in the returned ``agent`` object; tags are stored separately and must
+        be fetched via this call using the agent's ARN.
+
+        Args:
+            resource_arn: Full ARN of the Bedrock resource (e.g. agent ARN).
+
+        Returns:
+            dict[str, str]: Key/value tag map (empty dict when none are set).
+        """
+        logger.debug("Fetching tags for resource: %s", resource_arn)
+        try:
+            response = self._client.list_tags_for_resource(resourceArn=resource_arn)
+            return response.get("tags", {})
+        except ClientError as exc:
+            # Non-fatal: log and return empty rather than breaking the main call.
+            code = exc.response["Error"]["Code"]
+            logger.warning("Could not fetch tags for %s [%s]: %s", resource_arn, code, exc)
+            return {}
+
     def prepare_agent(self, agent_id: str) -> str:
         """
         Wait for the agent to be stable, then call ``PrepareAgent``.
@@ -261,7 +337,7 @@ class BedrockRepository:
     # ── Error handling ────────────────────────────────────────────────────────
 
     @staticmethod
-    def _handle_client_error(exc: ClientError, context: str) -> None:
+    def _handle_client_error(exc: ClientError, context: str) -> NoReturn:
         code = exc.response["Error"]["Code"]
         message = exc.response["Error"]["Message"]
         logger.error("Bedrock ClientError [%s] during %s: %s", code, context, message)

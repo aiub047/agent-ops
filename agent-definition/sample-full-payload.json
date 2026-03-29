@@ -1,0 +1,249 @@
+{
+    "agentKey": "senior-software-architect-2",
+    "yamlData": {
+        "apiVersion": "agentops/v1",
+        "kind": "BedrockAgent",
+        "metadata": {
+            "name": "senior-software-architect-2",
+            "displayName": "Senior Software Architect-2",
+            "version": "1.0.0",
+            "owner": "platform-architecture",
+            "description": "Optional metadata-level description",
+            "labels": {
+                "team": "platform",
+                "managedBy": "agentops"
+            },
+            "tags": {
+                "domain": "engineering",
+                "persona": "architect",
+                "environment": "dev"
+            },
+            "annotations": {
+                "gitlab.path": "agents/senior-software-architect.yaml",
+                "gitlab.commitSha": "optional-commit-sha"
+            },
+            "createdBy": "optional-user",
+            "updatedBy": "optional-user"
+        },
+        "spec": {
+            "description": "Senior Software Architect assistant for designing scalable systems, reviewing architecture decisions, and producing implementation-ready guidance.",
+            "instruction": "You are a Senior Software Architect.\nYour role is to provide practical, production-ready architecture guidance.\n\nCore responsibilities:\n1) Translate business requirements into clear technical architecture.\n2) Evaluate trade-offs (cost, performance, reliability, security, operability).\n3) Propose phased implementation plans with measurable milestones.\n4) Enforce best practices: SOLID, clean code, modular design, and testability.\n\nDecision principles:\n- Prefer simple and maintainable solutions over unnecessary complexity.\n- Identify assumptions and risks early.\n- Explicitly call out non-functional requirements and constraints.\n- Provide alternatives with pros/cons when uncertainty exists.\n\nResponse style:\n- Be concise but actionable.\n- Use structured outputs (sections, bullets, tables when useful).\n- Include architecture diagrams in text form (ASCII) when they add clarity.\n- Never invent unavailable system details; ask clarifying questions first.",
+            "agentCollaboration": "DISABLED",
+            "idleSessionTtlInSeconds": 1800,
+            "customerEncryptionKeyArn": "optional-kms-key-arn",
+            "serviceRoleArn": "optional-bedrock-agent-service-role-arn",
+            "foundationModel": "us.meta.llama3-3-70b-instruct-v1:0",
+            "model": {
+                "id": "us.meta.llama3-3-70b-instruct-v1:0",
+                "provider": "meta",
+                "region": "us-east-1",
+                "temperature": 0.2,
+                "topP": 0.9,
+                "topK": 50,
+                "maxTokens": 2048,
+                "stopSequences": [
+                    "optional-stop-sequence"
+                ],
+                "streaming": false,
+                "additionalModelRequestFields": {
+                    "optionalField": "optionalValue"
+                }
+            },
+            "promptOverrideConfiguration": {
+                "overrideLambdaArn": "optional-lambda-arn",
+                "promptConfigurations": [
+                    {
+                        "promptType": "PRE_PROCESSING",
+                        "promptState": "ENABLED",
+                        "basePromptTemplate": "optional-template",
+                        "inferenceConfiguration": {
+                            "maximumLength": 2048,
+                            "stopSequences": [],
+                            "temperature": 0.2,
+                            "topK": 50,
+                            "topP": 0.9
+                        },
+                        "parserMode": "DEFAULT",
+                        "promptCreationMode": "DEFAULT"
+                    },
+                    {
+                        "promptType": "ORCHESTRATION",
+                        "promptState": "ENABLED",
+                        "basePromptTemplate": "optional-template",
+                        "inferenceConfiguration": {
+                            "maximumLength": 2048,
+                            "stopSequences": [],
+                            "temperature": 0.2,
+                            "topK": 50,
+                            "topP": 0.9
+                        },
+                        "parserMode": "DEFAULT",
+                        "promptCreationMode": "DEFAULT"
+                    },
+                    {
+                        "promptType": "KNOWLEDGE_BASE_RESPONSE_GENERATION",
+                        "promptState": "ENABLED",
+                        "basePromptTemplate": "optional-template",
+                        "inferenceConfiguration": {
+                            "maximumLength": 2048,
+                            "stopSequences": [],
+                            "temperature": 0.2,
+                            "topK": 50,
+                            "topP": 0.9
+                        },
+                        "parserMode": "DEFAULT",
+                        "promptCreationMode": "DEFAULT"
+                    },
+                    {
+                        "promptType": "POST_PROCESSING",
+                        "promptState": "DISABLED",
+                        "basePromptTemplate": "optional-template",
+                        "inferenceConfiguration": {
+                            "maximumLength": 2048,
+                            "stopSequences": [],
+                            "temperature": 0.2,
+                            "topK": 50,
+                            "topP": 0.9
+                        },
+                        "parserMode": "DEFAULT",
+                        "promptCreationMode": "DEFAULT"
+                    }
+                ]
+            },
+            "goals": [
+                "Design scalable, secure, and observable backend systems.",
+                "Improve developer velocity and operational excellence.",
+                "Reduce architecture risk through explicit trade-off analysis."
+            ],
+            "constraints": [
+                "Follow cloud security best practices and least privilege.",
+                "Optimize for production readiness and maintainability.",
+                "Prefer managed services where they reduce operational burden."
+            ],
+            "responseContract": {
+                "format": "markdown",
+                "sections": [
+                    "assumptions",
+                    "proposed-architecture",
+                    "trade-offs",
+                    "implementation-plan",
+                    "risks-and-mitigations",
+                    "testing-and-observability"
+                ],
+                "maxSectionCount": 10,
+                "requireStructuredOutput": true
+            },
+            "actionGroups": [
+                {
+                    "name": "architecture-knowledge-search",
+                    "description": "Search architecture guidelines and standards.",
+                    "enabled": true,
+                    "executor": {
+                        "type": "lambda",
+                        "arn": "arn:aws:lambda:us-east-1:123456789012:function:architecture-knowledge-search-dev",
+                        "timeoutSeconds": 60
+                    },
+                    "apiSchema": {
+                        "s3": {
+                            "bucket": "optional-bucket",
+                            "key": "optional-key"
+                        },
+                        "payload": {
+                            "openapi": "optional-inline-openapi-spec"
+                        }
+                    },
+                    "functionSchema": {
+                        "functions": [
+                            {
+                                "name": "searchArchitectureDocs",
+                                "description": "Search internal architecture guidance",
+                                "parameters": {
+                                    "type": "object",
+                                    "properties": {
+                                        "query": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "query"
+                                    ]
+                                }
+                            }
+                        ]
+                    }
+                }
+            ],
+            "knowledgeBases": [
+                {
+                    "id": "kb-engineering-standards",
+                    "description": "Internal engineering standards and ADR history.",
+                    "enabled": true,
+                    "retrieval": {
+                        "topK": 6,
+                        "scoreThreshold": 0.7,
+                        "searchType": "SEMANTIC",
+                        "overrideSearchType": "SEMANTIC",
+                        "filter": {
+                            "equals": {
+                                "key": "environment",
+                                "value": "dev"
+                            }
+                        }
+                    },
+                    "promptTemplate": "optional-kb-prompt-template"
+                }
+            ],
+            "guardrails": {
+                "enabled": true,
+                "guardrailId": "optional-guardrail-id",
+                "guardrailVersion": "DRAFT"
+            },
+            "memory": {
+                "enabled": false,
+                "type": "SESSION"
+            },
+            "observability": {
+                "logLevel": "info",
+                "traceEnabled": true,
+                "metricsEnabled": true
+            },
+            "aliases": [
+                {
+                    "name": "dev",
+                    "description": "Development alias",
+                    "routing": {
+                        "trafficPercent": 100
+                    },
+                    "tags": {
+                        "environment": "dev"
+                    }
+                }
+            ],
+            "deployment": {
+                "region": "us-east-1",
+                "roleArn": "optional-role-arn",
+                "agentNameOverride": "optional-bedrock-agent-name",
+                "autoPrepare": true,
+                "createAlias": true,
+                "defaultAliasName": "dev",
+                "publish": true,
+                "tags": {
+                    "environment": "dev"
+                }
+            },
+            "lifecycle": {
+                "desiredState": "DEPLOYED",
+                "deletionPolicy": "RETAIN"
+            }
+        }
+    },
+    "redeploy": "true",
+    "recreate": "true",
+    "source": {
+        "repo": "bedrock-agent-definitions",
+        "branch": "main",
+        "commitSha": "abc123",
+        "filePath": "agents/senior-software-architect-2.yaml",
+        "mergedBy": "john.doe"
+    }
+}
